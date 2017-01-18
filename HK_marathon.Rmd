@@ -1,0 +1,268 @@
+---
+title: "Analysing the 2016 Hong Kong Marathon "
+author: "David Currie"
+date: "January 17, 2017"
+output: html_document
+---
+
+Having ran the Seoul Marathon in 2015, I thought this would be an interesting dataset. Primarily, I am interested to see how participants' speed (minutes/km) changes as the marathon continues. I, like many runners, hit the proverbial 'wall' around kilometer 32 (mile 20), and I am expecting to see a similar result in the data.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages, fig.width=9, fig.height=6}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, fig.width=9, fig.height=6)
+
+library(plotly)
+library(plyr)
+library(dplyr)
+```
+
+```{r}
+df <- read.csv("/Users/Dave/Desktop/Programming/Personal Projects/Marathon-Kaggle/challenge.csv")
+```
+
+```{r}
+str(df)
+```
+
+
+```{r}
+df$official_hour <- as.numeric(strftime(strptime(df$Official.Time, format = "%H:%M:%S"), "%H"))
+df$official_minute <- as.numeric(strftime(strptime(df$Official.Time, format = "%H:%M:%S"), "%M"))
+df$official_second <- as.numeric(strftime(strptime(df$Official.Time, format = "%H:%M:%S"), "%S"))
+#Find the official time measured in minutes
+df$official_timeM <- df$official_hour * 60 + df$official_minute + df$official_second / 60
+
+df$X10km_hour <- as.numeric(strftime(strptime(df$X10km.Time, format = "%H:%M:%S"), "%H"))
+df$X10km_minute <- as.numeric(strftime(strptime(df$X10km.Time, format = "%H:%M:%S"), "%M"))
+df$X10km_second <- as.numeric(strftime(strptime(df$X10km.Time, format = "%H:%M:%S"), "%S"))
+df$X10km_timeM <- df$X10km_hour * 60 + df$X10km_minute + df$X10km_second / 60
+
+df$half_hour <- as.numeric(strftime(strptime(df$Half.Way.Time, format = "%H:%M:%S"), "%H"))
+df$half_minute <- as.numeric(strftime(strptime(df$Half.Way.Time, format = "%H:%M:%S"), "%M"))
+df$half_second <- as.numeric(strftime(strptime(df$Half.Way.Time, format = "%H:%M:%S"), "%S"))
+df$half_timeM <- df$half_hour * 60 + df$half_minute + df$half_second / 60
+
+df$X30km_hour <- as.numeric(strftime(strptime(df$X30km.Time, format = "%H:%M:%S"), "%H"))
+df$X30km_minute <- as.numeric(strftime(strptime(df$X30km.Time, format = "%H:%M:%S"), "%M"))
+df$X30km_second <- as.numeric(strftime(strptime(df$X30km.Time, format = "%H:%M:%S"), "%S"))
+df$X30km_timeM <- df$X30km_hour * 60 + df$X30km_minute + df$X30km_second / 60
+```
+
+
+```{r}
+plot_ly(df, x = ~official_timeM, type = "histogram",
+        marker = list(line = list(color = 'white', width = 1))) %>%
+  layout(title = 'Finishing Times',
+         xaxis = list(title = "Time (in Minutes)"),
+         yaxis = list(title = "Number of Participants"),
+         margin = list(t = 80,
+                       b = 80))
+
+summary(df$official_timeM)
+```
+
+There's quite a variation in finishing times. To illustrate, if the winner of the race could continue his pace (incredibly unlikely, I admit), he could finish two marathons before the average runner has finished one. Seeing that some runners took over six hours to finish their marathons, I think that they should receive something more than a participants ribbon for their excellent endurance. Looking at how close the mean and median values are, we can see the this data is rather uniformally distributed.
+
+```{r}
+#Find the median time for each country
+Country_time <- df %>% 
+  group_by(Country) %>%
+  summarise(time = median(official_timeM))
+
+#Add number of participants per country
+Country_time$Participants <- table(df$Country)
+#Sort dataframe by time, ascending
+Country_time <- Country_time %>% arrange(time)
+#Reorder countries by changing the feature from a factor to a vector
+Country_time$Country <- as.vector(Country_time$Country)
+#Change countries back to a factor, in the new order
+Country_time$Country = factor(Country_time$Country,Country_time$Country)
+```
+
+
+```{r}
+plot_ly(Country_time, x = ~Country, y = ~time, type = "bar") %>%
+  layout(title = "Median Time by Country",
+         yaxis = list(title = "Time (in Minutes)"),
+         margin = list(t = 80,
+                       b = 200))
+```
+
+I expected to see African nations with the fastest times, but Italy (!?), I am very surprised to see them so high on the list. We'll have to look for them in the next plot to see if it is just one fast runner, or a group of people representing the nation.
+
+```{r}
+plot_ly(Country_time, x = ~Participants, y = ~time, type = "scatter", mode = "markers",
+        hoverinfo = 'text',
+        text = ~paste("Country:", Country,
+                      "</br> Participants:", Participants,
+                      "</br> Median Time:", round(time,2))) %>%
+  layout(xaxis = list(type = "log",
+                      title = "Number of Participants"),
+         yaxis = list(title = 'Time (in Minutes)'),
+         title = "Median Time vs Number of Participants by Country",
+         margin = list(t = 80,
+                       b = 80))
+```
+
+Italy has five runners, which is still very impressive. It's neat to see that as the number of participants from a country increases, its median time approaches the overall median (268) (~law of large numbers).
+
+Since Kenya was the fastest nation overall, I am interested to see the summary results of its nine runners.
+```{r}
+summary(df$official_timeM[df$Country == "Kenya"])
+```
+
+```{r}
+quantile(df$official_timeM, 0.03)
+```
+
+Even the slowest Kenyan runner was faster than almost 97% of other runners!
+
+The nationalities for the twenty fastest runners:
+```{r}
+df$Country[1:20]
+```
+
+
+```{r}
+#Group each runner into 1 of 10 groups, based on their official time in minutes
+df$quantile <- as.integer(cut(df$official_timeM, quantile(df$official_timeM, probs=0:10/10), 
+                              include.lowest=TRUE))
+```
+
+```{r}
+df$firstQ_time <- df$X10km_timeM
+df$secondQ_time <- df$half_timeM - df$firstQ
+df$thirdQ_time <- df$X30km_timeM - df$half_timeM
+df$fourthQ_time <- df$official_timeM - df$X30km_timeM
+
+#Find the average number of minutes/km in each section of the race
+df$firstQ_avg <- df$firstQ_time / 10
+df$secondQ_avg <- df$secondQ_time / 11.1
+df$thirdQ_avg <- df$thirdQ_time / 8.9
+df$fourthQ_avg <- df$fourthQ_time / 12.2
+```
+
+```{r}
+quarters <- function(Section, Speed) {
+  ggplot(aes(Section, Speed), data = df) +
+  geom_violin(alpha = 0.5, color = "red") +
+  geom_point(position = position_jitter(height = 0, width = 0.5),
+             alpha = 0.02, color = "blue") +
+  geom_boxplot(alpha = 0.5, color = "red") +
+    xlab(Section) + 
+    theme(axis.ticks.x = element_blank(),
+          axis.text.x = element_blank())
+}
+
+q1 <- quarters('First', df$firstQ_avg)
+q2 <- quarters('Second', df$secondQ_avg)
+q3 <- quarters('Third', df$thirdQ_avg)
+q4 <- quarters('Fourth', df$fourthQ_avg)
+
+subplot(q1,q2,q3,q4, shareY = TRUE, titleX = TRUE) %>%
+  layout(yaxis = list(range = c(2.8,13),
+                      ticktext = c("4","6","8","10","12"),
+                      tickvals = c("4","6","8","10","12"),
+                      title = "Minutes/Km"),
+         title = "Speed by Section of the Race",
+         margin = list(t = 80, 
+                       b = 80))
+```
+
+The sections of the race are broken down as follows: First (0km - 10km), Second (10km - 21.1km), Third (21.1km - 30km), and Fourth (30km - 42.2km). Despite each section being of different length, I believe that we can still see accurate fluctuations in the participants' speed. The second section is the fastest section, and the final two sections become progressively slower. The section with the slowest speed was the third, measuring at 12.74 minutes/km.
+
+```{r}
+#Find the speed of each quantile in the first section
+quantile_quarters <- df %>%
+  group_by(quantile) %>%
+  summarise(Q1_Time = median(firstQ_avg, na.rm = TRUE))
+
+#Find the speed of each quantile in the second section
+qq2 <- df %>%
+  group_by(quantile) %>%
+  summarise(Q2_Time = median(secondQ_avg, na.rm = TRUE))
+
+#Find the speed of each quantile in the third section
+qq3 <- df %>%
+  group_by(quantile) %>%
+  summarise(Q3_Time = median(thirdQ_avg, na.rm = TRUE))
+
+#Find the speed of each quantile in the fourth section
+qq4 <- df %>%
+  group_by(quantile) %>%
+  summarise(Q4_Time = median(fourthQ_avg, na.rm = TRUE))
+
+#Add all of the sections to the dataframe
+quantile_quarters$Q2_Time <- qq2$Q2_Time
+quantile_quarters$Q3_Time <- qq3$Q3_Time
+quantile_quarters$Q4_Time <- qq4$Q4_Time
+
+#Transform the dataframe to make each quantile a row, instead of a section of the marathon
+quantiles <- data.frame(t(quantile_quarters[,2:5]))
+```
+
+
+```{r}
+plot_ly(quantiles, x = c('First','Second','Third','Fourth'), 
+        y = ~X1, 
+        type = "scatter", 
+        mode = "markers+lines",
+        name = "1st Quantile") %>%
+  add_trace(y = ~X2, name = "2nd Quantile") %>%
+  add_trace(y = ~X3, name = "3rd Quantile") %>%
+  add_trace(y = ~X4, name = "4th Quantile") %>%
+  add_trace(y = ~X5, name = "5th Quantile") %>%
+  add_trace(y = ~X6, name = "6th Quantile") %>%
+  add_trace(y = ~X7, name = "7th Quantile") %>%
+  add_trace(y = ~X8, name = "8th Quantile") %>%
+  add_trace(y = ~X9, name = "9th Quantile") %>%
+  add_trace(y = ~X10, name = "10th Quantile") %>%
+  layout(xaxis = list(ticktext = c("First","Second","Third","Fourth"),
+                      title = "Section of the Marathon"),
+         yaxis = list(title = "Minutes/Km"),
+         title = "Median Speed by Section of Race",
+         margin = list(t = 80,
+                       b = 80),
+         legend = list(x = 0.05,
+                       y = 1.12,
+                       tracegroupgap = 3))
+```
+
+
+```{r}
+print("Summary of minutes/km in first section of the marathon:")
+summary(quantile_quarters$Q1_Time)
+print("Summary of minutes/km in second section of the marathon:")
+summary(quantile_quarters$Q2_Time)
+print("Summary of minutes/km in third section of the marathon:")
+summary(quantile_quarters$Q3_Time)
+print("Summary of minutes/km in fourth section of the marathon:")
+summary(quantile_quarters$Q4_Time)
+```
+
+```{r}
+plot_ly(quantiles, x = 1, y = ~sd(X1), type = "bar", name = "1st Quantile", 
+        marker=list(color="#1D76B1")) %>%
+  add_bars(x = 2, y = ~sd(X2), name = "2nd Quantile") %>%
+  add_bars(x = 3, y = ~sd(X3), name = "3rd Quantile") %>%
+  add_bars(x = 4, y = ~sd(X4), name = "4th Quantile") %>%
+  add_bars(x = 5, y = ~sd(X5), name = "5th Quantile") %>%
+  add_bars(x = 6, y = ~sd(X6), name = "6th Quantile") %>%
+  add_bars(x = 7, y = ~sd(X7), name = "7th Quantile") %>%
+  add_bars(x = 8, y = ~sd(X8), name = "8th Quantile") %>%
+  add_bars(x = 9, y = ~sd(X9), name = "9th Quantile") %>%
+  add_bars(x = 10, y = ~sd(X10), name = "10th Quantile") %>%
+  layout(title = "Standard Deviation of Sections' Speed by Runners' Quantiles",
+         xaxis = list(title = "Quantile of Runners"),
+         yaxis = list(title = "Standard Deviation of Sections' Speed"),
+         showlegend = FALSE,
+         margin = list(t = 80,
+                       b = 80))
+```
+
+Looking at the data above we can see quite a few interesting things. The first section of the marathon is ran about as fast (arguably a little faster) than the third section of the race. All quantiles, expect for the tenth, slow down more in the final section of the race than the third section. By looking at the standard deviations of the runners, as expected, the fastest runners are the best at pacing themselves (i.e. they have the smallest standard deviation). 
+
+
+
+
+
+
